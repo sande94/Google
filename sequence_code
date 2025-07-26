@@ -1,0 +1,117 @@
+class real_item extends uvm_sequence_item;
+  rand bit start;
+  rand bit load;
+  string filename;
+
+  rand uint_t chunk_start_addr[];
+  rand uint_t chunk_end_addr[];
+  real chunk_values[];  // if needed to preload
+
+  extern function new(string name = "");
+endclass
+
+function real_item::new(string name = "");
+  super.new(name);
+endfunction
+
+---------------------------------------------------------------------------------------------------------------------
+class real_seq extends uvm_sequence #(real_item);
+  virtual task body();
+    real_item tr = real_item::type_id::create("tr");
+
+    tr.start = 1;
+    tr.chunk_start_addr = new[3];
+    tr.chunk_end_addr   = new[3];
+
+    tr.chunk_start_addr[0] = 32'h01000;
+    tr.chunk_end_addr[0]   = 32'h01010;
+
+    tr.chunk_start_addr[1] = 32'h01020;
+    tr.chunk_end_addr[1]   = 32'h01030;
+
+    tr.chunk_start_addr[2] = 32'h01040;
+    tr.chunk_end_addr[2]   = 32'h01050;
+
+    start_item(tr);
+    finish_item(tr);
+  endtask
+endclass
+------------------------------------------------Driver-------------------------------------------------------------------
+class real_driver extends uvm_driver #(real_item);
+  virtual real_if vif;
+  real mem[];
+
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+  endfunction
+
+  virtual task run_phase(uvm_phase phase);
+    real_item tr;
+    forever begin
+      seq_item_port.get_next_item(tr);
+
+      if (tr.start) begin
+        for (int c = 0; c < tr.chunk_start_addr.size(); c++) begin
+          uint_t start = tr.chunk_start_addr[c];
+          uint_t end   = tr.chunk_end_addr[c];
+
+          // Write start/end addr to DUT registers
+          register_write(32'h0002, start);
+          register_write(32'h0003, end);
+          register_write(32'h0000, 1); // trigger
+
+          // Poll for done
+          bit [31:0] status;
+          do begin
+            register_read(32'h0001, status);
+          end while ((status & 32'h1) == 0);
+
+          // Read back checksum
+          bit [31:0] calc_cksum;
+          register_read(32'h0004, calc_cksum);
+          `uvm_info("DRIVER", $sformatf("Chunk %0d: DUT Checksum = %0h", c, calc_cksum), UVM_MEDIUM)
+        end
+      end
+
+      seq_item_port.item_done();
+    end
+  endtask
+endclass
+------------------------------------------------------Driver---------------------------------------------------------------------
+class real_driver extends uvm_driver #(real_item);
+  virtual real_if vif;
+  real mem[]; // Local memory array holding real values
+
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+  endfunction
+
+  virtual task run_phase(uvm_phase phase);
+    real_item tr;
+
+    forever begin
+      seq_item_port.get_next_item(tr);
+
+      if (tr.start) begin
+        `uvm_info("DRIVER", $sformatf("Driving %0d chunks from memory", tr.chunk_start_addr.size()), UVM_MEDIUM)
+
+        for (int c = 0; c < tr.chunk_start_addr.size(); c++) begin
+          uint unsigned start = tr.chunk_start_addr[c];
+          uint unsigned end   = tr.chunk_end_addr[c];
+
+          for (int addr = start; addr <= end; addr++) begin
+            if (addr < mem.size()) begin
+              vif.port1 <= mem[addr]; // Drive real value from memory
+              @(posedge vif.clk);
+            end
+            else begin
+              `uvm_error("DRIVER", $sformatf("Chunk %0d: Address %0d out of range", c, addr))
+            end
+          end
+        end
+      end
+
+      seq_item_port.item_done();
+    end
+  endtask
+endclass
