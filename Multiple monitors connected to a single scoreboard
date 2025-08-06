@@ -1,0 +1,42 @@
+https://www.linkedin.com/pulse/different-approach-implementing-multi-monitor-single-than-advane/
+https://verificationacademy.com/forums/t/how-to-connect-scoreboard-with-more-than-one-monitor/38909/2
+
+
+I think you need not to create two scoreboard.
+
+You can follow below steps.
+
+declare analysis port inside Master agent monitor.
+
+uvm_analysis_port #(seq_item) master_mon2scb;
+
+declare analysis port inside Slave agent monitor.
+
+uvm_analysis_port #(seq_item) slave_mon2scb;
+
+3)declare 2 analysis imp to get monitor transaction inside your scoreboard.
+
+
+`uvm_analysis_imp_decl(_master_mon2scb)
+`uvm_analysis_imp_decl(_slave_mon2scb)
+......
+......
+uvm_analysis_imp_master_mon2scb#(seq_item,scb) m_mon2scb;
+uvm_analysis_imp_slave_mon2scb#(seq_item,scb) s_mon2scb;
+.......
+.......
+//create both port 
+........
+........
+function write_master_mon2scb( seq_item m_tr );
+.....
+endfunction
+
+function write_slave_mon2scb( seq_item s_tr );
+.....
+endfunction
+
+connect inside connect phase of your environment.
+
+m_agent.mon.master_mon2scb.connect(env.scb.m_mon2scb);
+s_agent.mon.slave_mon2scb.connect(env.scb.s_mon2scb);
